@@ -1,0 +1,95 @@
+//HelperClass-- ContentDocumentLinkHelper
+------------------------------------------
+
+public class ContentDocumentLinkHelper {
+    
+    public static void ContentDocument(list<ContentDocumentLink> cdls){
+         
+    Set<Id> parentIds = new Set<Id>();
+    Set<Id> ContentDocumentIdList = new Set<Id>();
+    
+    for ( ContentDocumentLink cdl : cdls ) {
+        parentIds.add( cdl.LinkedEntityId );
+        ContentDocumentIdList.add(cdl.ContentDocumentId);
+    }
+    
+    list<ContentDocumentLink> condellist = [SELECT ContentDocumentId, LinkedEntityId  FROM ContentDocumentLink 
+                                            where LinkedEntityId in ( SELECT Id FROM Document_Request__c WHERE Id IN :parentIds )
+                                            and LinkedEntity.Type='Document_Request__c'
+                                            and ContentDocumentId not in:ContentDocumentIdList
+                                           ];
+            list<Document_Request__c> drlst = [SELECT Id, Status__c FROM Document_Request__c WHERE Id IN :parentIds];
+    		list<Document_Request__c> drlist = new list<Document_Request__c> ();
+              for(Document_Request__c dr : drlst){
+                  dr.Status__c='Completed';
+                  drlist.add(dr);              
+              }                       
+               update drlist;                             
+               delete condellist;        
+    }
+}
+
+
+Trigger -- Apex trigger
+-----------------------
+
+trigger deletFileFromDocReq on ContentDocumentLink ( before insert) {
+    
+    List<ContentDocumentLink> cdls = ( Trigger.new == null ? Trigger.old : Trigger.new );
+    if(trigger.isInsert){
+        ContentDocumentLinkHelper.ContentDocument(cdls);
+    }
+}
+
+
+Apex Test  Class
+----------------
+
+@isTest
+public class ContentDocumentLinkHelperTest {
+    
+    
+    public static testMethod void contentDocumentDetails(){
+        
+        Document_Request__c  dr = new Document_Request__c();           
+            dr.Status__c='Pending';
+            dr.Document_Type__c='Pay Stubs';
+            insert dr;
+        
+        //Create Document
+            ContentVersion cv = new ContentVersion();
+            cv.Title = 'Test Document';
+            cv.PathOnClient = 'TestDocument.pdf';
+            cv.VersionData = Blob.valueOf('Test Content');
+            cv.IsMajorVersion = true;
+            Insert cv;
+ 
+        //Get Content Version
+        List<ContentVersion> cvList = [SELECT Id, Title, ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id];
+        System.assertEquals(cvList.size(), 1);
+ 
+        //Get Content Documents
+        List<ContentDocument> cdList = [SELECT Id, Title, LatestPublishedVersionId FROM ContentDocument];
+        System.assertEquals(cdList.size(), 1);
+        
+
+        list<ContentDocumentLink> cdlst = new list<ContentDocumentLink>();
+            ContentDocumentLink contentlink=new ContentDocumentLink();
+                contentlink.LinkedEntityId=dr.id;
+                contentlink.ShareType= 'I';
+                contentlink.LinkedEntityId = dr.Id; 
+                contentlink.ContentDocumentId=cdList[0].Id;
+                contentlink.Visibility = 'AllUsers'; 
+                 cdlst.add(contentlink);
+        insert cdlst;
+       
+        dr.Status__c='Completed';
+		update dr;
+        
+        test.startTest();
+       		 ContentDocumentLinkHelper.ContentDocument(cdlst);
+        test.stopTest();
+          
+    }
+}
+
